@@ -32,7 +32,7 @@ function glowSprite(colour, core) {
   return c;
 }
 
-/** The static deep-space backdrop: near-black blue with three nebula blooms. */
+/** The far deep-space backdrop: near-black blue with soft nebula blooms and a dusting of grain. */
 function nebulaCanvas() {
   const c = document.createElement('canvas');
   c.width = FIELD.width;
@@ -45,6 +45,7 @@ function nebulaCanvas() {
     [980, 520, 480, PALETTE.nebulaB],
     [1020, 120, 320, PALETTE.nebulaC],
     [420, 600, 300, PALETTE.nebulaB],
+    [660, 330, 560, '#0a1030'],
   ];
   for (const [x, y, r, colour] of blooms) {
     const grad = g.createRadialGradient(x, y, 0, x, y, r);
@@ -54,7 +55,64 @@ function nebulaCanvas() {
     g.fillStyle = grad;
     g.fillRect(x - r, y - r, r * 2, r * 2);
   }
+  // Grain: hundreds of near-invisible dust specks break up the flat dark.
+  for (let i = 0; i < 520; i += 1) {
+    g.globalAlpha = 0.02 + ((i * 37) % 10) * 0.007;
+    g.fillStyle = '#cfe0ff';
+    g.fillRect((i * 613) % FIELD.width, (i * 389) % FIELD.height, 1.4, 1.4);
+  }
   g.globalAlpha = 1;
+  return c;
+}
+
+/** The near nebula layer: brighter wisps on transparency, drawn additively with stronger parallax. */
+function nebulaNearCanvas() {
+  const c = document.createElement('canvas');
+  c.width = FIELD.width;
+  c.height = FIELD.height;
+  const g = c.getContext('2d');
+  const wisps = [
+    [240, 560, 380, PALETTE.nebulaC, 0.34],
+    [1080, 300, 320, '#0d3a4a', 0.4],
+    [700, 110, 280, PALETTE.nebulaA, 0.32],
+    [520, 380, 240, '#123a2e', 0.26],
+  ];
+  for (const [x, y, r, colour, alpha] of wisps) {
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, colour);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalAlpha = alpha;
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  // Drifting dust clouds: soft pale motes that catch the light.
+  for (let i = 0; i < 26; i += 1) {
+    const x = (i * 337) % FIELD.width;
+    const y = (i * 211) % FIELD.height;
+    const r = 22 + ((i * 53) % 44);
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(190,215,255,0.055)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalAlpha = 1;
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  g.globalAlpha = 1;
+  return c;
+}
+
+/** A vignette: transparent at the heart of the arena, dark at the corners. */
+function vignetteCanvas() {
+  const c = document.createElement('canvas');
+  c.width = FIELD.width;
+  c.height = FIELD.height;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(640, 350, 300, 640, 360, 760);
+  grad.addColorStop(0, 'rgba(2,3,9,0)');
+  grad.addColorStop(0.72, 'rgba(2,3,9,0.16)');
+  grad.addColorStop(1, 'rgba(2,3,9,0.52)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, c.width, c.height);
   return c;
 }
 
@@ -70,17 +128,20 @@ function polygon(g, x, y, radius, sides, rotation) {
   g.closePath();
 }
 
-const FOE_SIDES = { drifter: 3, mite: 3, dasher: 4, splitter: 5, bulwark: 6, dreadnought: 10 };
+const FOE_SIDES = { drifter: 3, mite: 3, dasher: 4, splitter: 5, wraith: 4, bulwark: 6, dreadnought: 10 };
 
 export function createRenderer(canvas) {
   const g = canvas.getContext('2d');
   const nebula = nebulaCanvas();
+  const nebulaNear = nebulaNearCanvas();
+  const vignette = vignetteCanvas();
   const sprites = {};
   for (const [kind, spec] of Object.entries(FOES)) sprites[kind] = glowSprite(spec.colour, spec.core);
   sprites.shard = glowSprite('#8dffce', '#eafff5');
   sprites.bolt = glowSprite('#aef4ff', '#ffffff');
   sprites.ember = glowSprite('#ff9d5c', '#fff0dd');
   sprites.player = glowSprite('#7ce7ff', '#ffffff');
+  sprites.star = glowSprite('#dfe9ff', '#ffffff');
 
   let scale = 1;
   let offsetX = 0;
@@ -98,15 +159,37 @@ export function createRenderer(canvas) {
   resize();
 
   function drawGlow(sprite, x, y, size, alpha) {
+    g.globalCompositeOperation = 'lighter';
     g.globalAlpha = alpha;
     g.drawImage(sprite, x - size / 2, y - size / 2, size, size);
     g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
   }
 
-  function drawFoe(foe) {
+  function drawFoe(foe, state) {
     const spec = FOES[foe.kind];
     const spin = foe.t * (foe.kind === 'dreadnought' ? 0.25 : 0.7) + foe.phase;
+    const flash = foe.flash > 0;
     drawGlow(sprites[foe.kind], foe.x, foe.y, foe.radius * 4.4, 0.5);
+    if (foe.kind === 'wraith' && foe.mode === 'blinkwindup') {
+      // The blink telegraph: a pulsing ghost waits where the wraith will
+      // land, tethered to the wraith by a thread of violet light.
+      const pulse = 0.35 + 0.3 * Math.sin(state.time * 30);
+      g.strokeStyle = `rgba(224,92,255,${pulse.toFixed(3)})`;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(foe.x, foe.y);
+      g.lineTo(foe.blinkX, foe.blinkY);
+      g.stroke();
+      polygon(g, foe.blinkX, foe.blinkY, foe.radius, 4, state.time * 2.4);
+      g.fillStyle = `rgba(224,92,255,${(pulse * 0.5).toFixed(3)})`;
+      g.fill();
+      g.strokeStyle = `rgba(251,233,255,${pulse.toFixed(3)})`;
+      g.stroke();
+      g.beginPath();
+      g.arc(foe.blinkX, foe.blinkY, foe.radius + 12 - foe.modeTimer * 14, 0, TAU);
+      g.stroke();
+    }
     if (foe.kind === 'dasher') {
       // A dart, drawn pointing along its motion rather than as a polygon.
       const a = Math.atan2(foe.vy, foe.vx);
@@ -119,20 +202,39 @@ export function createRenderer(canvas) {
       g.lineTo(-foe.radius * 0.45, 0);
       g.lineTo(-foe.radius, -foe.radius * 0.72);
       g.closePath();
-      g.fillStyle = foe.flash > 0 ? '#ffffff' : spec.colour;
+      const grad = g.createLinearGradient(foe.radius * 1.5, 0, -foe.radius, 0);
+      grad.addColorStop(0, flash ? '#ffffff' : spec.core);
+      grad.addColorStop(1, flash ? '#ffffff' : spec.colour);
+      g.fillStyle = grad;
       g.fill();
       g.restore();
     } else {
+      // Body: a radial gradient from the bright core out to the hull colour,
+      // rimmed with a pale stroke so the sigil reads against the dark.
       polygon(g, foe.x, foe.y, foe.radius, FOE_SIDES[foe.kind], spin);
-      g.fillStyle = foe.flash > 0 ? '#ffffff' : spec.colour;
-      g.globalAlpha = 0.92;
+      const grad = g.createRadialGradient(foe.x, foe.y, foe.radius * 0.1, foe.x, foe.y, foe.radius);
+      grad.addColorStop(0, flash ? '#ffffff' : spec.core);
+      grad.addColorStop(0.45, flash ? '#ffffff' : spec.colour);
+      grad.addColorStop(1, flash ? '#ffffff' : spec.colour);
+      g.globalAlpha = 0.94;
+      g.fillStyle = grad;
       g.fill();
       g.globalAlpha = 1;
+      g.strokeStyle = flash ? '#ffffff' : spec.core;
+      g.globalAlpha = 0.45;
+      g.lineWidth = 1.4;
+      g.stroke();
+      g.globalAlpha = 1;
       polygon(g, foe.x, foe.y, foe.radius * 0.55, FOE_SIDES[foe.kind], -spin * 1.4);
-      g.fillStyle = spec.core;
+      g.fillStyle = flash ? '#ffffff' : spec.core;
       g.globalAlpha = 0.85;
       g.fill();
       g.globalAlpha = 1;
+      drawGlow(sprites[foe.kind], foe.x, foe.y, foe.radius * 1.5, 0.55);
+      g.beginPath();
+      g.arc(foe.x, foe.y, Math.max(2, foe.radius * 0.14), 0, TAU);
+      g.fillStyle = '#ffffff';
+      g.fill();
     }
     if (foe.kind === 'dasher' && foe.mode === 'windup') {
       g.strokeStyle = 'rgba(255,92,138,0.8)';
@@ -140,6 +242,63 @@ export function createRenderer(canvas) {
       g.beginPath();
       g.arc(foe.x, foe.y, foe.radius + 6 + Math.sin(foe.t * 40) * 2, 0, TAU);
       g.stroke();
+    }
+    if (foe.kind === 'dreadnought') {
+      // The boss wears its machinery outside: counter-rotating dashed
+      // orbit rings, spokes, and ember nodes circling the hull.
+      g.save();
+      g.translate(foe.x, foe.y);
+      g.strokeStyle = 'rgba(255,217,226,0.32)';
+      g.lineWidth = 3;
+      for (let i = 0; i < 6; i += 1) {
+        const a = spin * 0.6 + (i / 6) * TAU;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * foe.radius * 0.2, Math.sin(a) * foe.radius * 0.2);
+        g.lineTo(Math.cos(a) * foe.radius * 0.9, Math.sin(a) * foe.radius * 0.9);
+        g.stroke();
+      }
+      g.setLineDash([14, 10]);
+      g.lineDashOffset = state.time * 22;
+      g.strokeStyle = 'rgba(255,56,96,0.5)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(0, 0, foe.radius * 1.28, 0, TAU);
+      g.stroke();
+      g.setLineDash([4, 14]);
+      g.lineDashOffset = -state.time * 15;
+      g.strokeStyle = 'rgba(255,157,92,0.4)';
+      g.beginPath();
+      g.arc(0, 0, foe.radius * 1.5, 0, TAU);
+      g.stroke();
+      g.setLineDash([]);
+      g.restore();
+      for (let i = 0; i < 5; i += 1) {
+        const a = state.time * 0.7 + (i / 5) * TAU;
+        drawGlow(sprites.ember, foe.x + Math.cos(a) * foe.radius * 1.38, foe.y + Math.sin(a) * foe.radius * 1.38, 20, 0.8);
+      }
+      if (foe.charge > 0 && state.player && state.player.alive) {
+        // The fan telegraph: a dashed aim line to the player and a glow
+        // converging on the boss's maw as the charge builds.
+        const p = state.player;
+        const progress = 1 - Math.max(0, foe.charge) / 0.55;
+        g.save();
+        g.setLineDash([10, 8]);
+        g.lineDashOffset = -state.time * 46;
+        g.strokeStyle = `rgba(255,157,92,${(0.22 + 0.4 * progress).toFixed(3)})`;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(foe.x, foe.y);
+        g.lineTo(p.x, p.y);
+        g.stroke();
+        g.setLineDash([]);
+        g.strokeStyle = `rgba(255,157,92,${(0.3 + 0.45 * progress).toFixed(3)})`;
+        g.beginPath();
+        g.arc(foe.x, foe.y, foe.radius + 26 - progress * 18, 0, TAU);
+        g.stroke();
+        g.restore();
+        const aim = Math.atan2(p.y - foe.y, p.x - foe.x);
+        drawGlow(sprites.ember, foe.x + Math.cos(aim) * foe.radius, foe.y + Math.sin(aim) * foe.radius, 40 + progress * 60, 0.35 + progress * 0.55);
+      }
     }
     if (foe.maxHp > 4 && foe.kind !== 'dreadnought' && foe.hp < foe.maxHp) {
       const w = foe.radius * 1.7;
@@ -159,6 +318,10 @@ export function createRenderer(canvas) {
     }
     const blink = p.invuln > 0.15 && Math.floor(state.time * 12) % 2 === 0;
     drawGlow(sprites.player, p.x, p.y, 120, blink ? 0.25 : 0.6);
+    // Engine glow at the tail, swelling with thrust.
+    const tailX = p.x - Math.cos(p.angle) * (p.radius + 5);
+    const tailY = p.y - Math.sin(p.angle) * (p.radius + 5);
+    drawGlow(sprites.ember, tailX, tailY, 24 + p.thrust * 30, blink ? 0.2 : 0.55);
     // Engine flame, behind the hull, sized by thrust.
     const flame = (10 + p.thrust * 16) * (0.85 + 0.3 * Math.sin(state.time * 31));
     g.save();
@@ -169,19 +332,30 @@ export function createRenderer(canvas) {
     g.lineTo(-p.radius + 2, -5);
     g.lineTo(-p.radius + 2, 5);
     g.closePath();
-    g.fillStyle = 'rgba(255,170,80,0.85)';
+    const flameGrad = g.createLinearGradient(-p.radius - flame, 0, -p.radius + 2, 0);
+    flameGrad.addColorStop(0, 'rgba(255,120,40,0)');
+    flameGrad.addColorStop(1, 'rgba(255,190,90,0.9)');
+    g.fillStyle = flameGrad;
     g.fill();
-    // The hull: a sleek arrow of light.
+    // The hull: a sleek arrow of light, graded from a white-hot nose to a
+    // deep blue tail and rimmed so it lifts off the dark.
     g.beginPath();
     g.moveTo(p.radius + 7, 0);
     g.lineTo(-p.radius, -p.radius * 0.85);
     g.lineTo(-p.radius * 0.45, 0);
     g.lineTo(-p.radius, p.radius * 0.85);
     g.closePath();
-    g.fillStyle = blink ? 'rgba(124,231,255,0.45)' : PALETTE.hull;
+    const hullGrad = g.createLinearGradient(p.radius + 7, 0, -p.radius, 0);
+    hullGrad.addColorStop(0, '#ffffff');
+    hullGrad.addColorStop(0.4, PALETTE.hull);
+    hullGrad.addColorStop(1, '#2f7fc4');
+    g.fillStyle = blink ? 'rgba(124,231,255,0.45)' : hullGrad;
     g.fill();
+    g.strokeStyle = 'rgba(234,252,255,0.75)';
+    g.lineWidth = 1.3;
+    g.stroke();
     g.beginPath();
-    g.arc(0, 0, 4.5, 0, TAU);
+    g.arc(1, 0, 4.5, 0, TAU);
     g.fillStyle = PALETTE.hullCore;
     g.fill();
     g.restore();
@@ -195,18 +369,29 @@ export function createRenderer(canvas) {
   }
 
   function drawWorld(state) {
+    // Parallax: the nearer the layer, the more it leans against the player.
+    const px = state.player ? (state.player.x - FIELD.width / 2) / (FIELD.width / 2) : 0;
+    const py = state.player ? (state.player.y - FIELD.height / 2) / (FIELD.height / 2) : 0;
     const driftX = Math.sin(state.time * 0.05) * 5;
     const driftY = Math.cos(state.time * 0.04) * 4;
-    g.drawImage(nebula, driftX - 6, driftY - 5, FIELD.width + 12, FIELD.height + 10);
+    g.drawImage(nebula, driftX * 0.5 - px * 5 - 6, driftY * 0.5 - py * 4 - 5, FIELD.width + 12, FIELD.height + 10);
     for (const star of state.stars) {
       const twinkle = 0.45 + 0.55 * Math.abs(Math.sin(state.time * star.tw + star.x));
+      const sx = star.x - px * star.layer * 6;
+      const sy = star.y - py * star.layer * 4;
+      if (star.layer === 2) drawGlow(sprites.star, sx, sy, star.r * 11, twinkle * 0.4);
       g.globalAlpha = twinkle * (0.35 + star.layer * 0.3);
       g.fillStyle = '#dfe9ff';
       g.beginPath();
-      g.arc(star.x, star.y, star.r, 0, TAU);
+      g.arc(sx, sy, star.r, 0, TAU);
       g.fill();
     }
     g.globalAlpha = 1;
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = 0.85;
+    g.drawImage(nebulaNear, driftX - px * 13 - 16, driftY - py * 9 - 14, FIELD.width + 32, FIELD.height + 28);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
     for (const shard of state.shards) {
       const fade = shard.life < 3 ? (Math.floor(shard.life * 6) % 2 === 0 ? 0.35 : 1) : 1;
       const pulse = 1 + 0.18 * Math.sin(shard.t * 5);
@@ -217,21 +402,51 @@ export function createRenderer(canvas) {
       g.globalAlpha = fade;
       g.fillStyle = '#8dffce';
       g.fillRect(-4.5, -4.5, 9, 9);
+      g.fillStyle = '#eafff5';
+      g.fillRect(-2, -2, 4, 4);
       g.restore();
       g.globalAlpha = 1;
     }
-    for (const ember of state.embers) drawGlow(sprites.ember, ember.x, ember.y, 34, 0.9);
-    for (const foe of state.foes) drawFoe(foe);
-    for (const bolt of state.bolts) drawGlow(sprites.bolt, bolt.x, bolt.y, 30, 0.95);
-    drawPlayer(state);
-    for (const p of state.particles) {
-      g.globalAlpha = Math.max(0, p.life / p.maxLife);
-      g.fillStyle = p.colour;
+    for (const ember of state.embers) {
+      drawGlow(sprites.ember, ember.x, ember.y, 32 + 7 * Math.sin(state.time * 9 + ember.x * 0.05), 0.92);
+    }
+    for (const foe of state.foes) drawFoe(foe, state);
+    for (const bolt of state.bolts) {
+      drawGlow(sprites.bolt, bolt.x, bolt.y, 30, 0.95);
+      g.strokeStyle = 'rgba(220,250,255,0.85)';
+      g.lineWidth = 3;
+      g.lineCap = 'round';
       g.beginPath();
-      g.arc(p.x, p.y, p.size, 0, TAU);
+      g.moveTo(bolt.x - bolt.vx * 0.024, bolt.y - bolt.vy * 0.024);
+      g.lineTo(bolt.x, bolt.y);
+      g.stroke();
+      g.beginPath();
+      g.arc(bolt.x, bolt.y, 1.8, 0, TAU);
+      g.fillStyle = '#ffffff';
       g.fill();
     }
+    drawPlayer(state);
+    g.globalCompositeOperation = 'lighter';
+    for (const p of state.particles) {
+      const frac = Math.max(0, p.life / p.maxLife);
+      g.globalAlpha = frac;
+      if (p.streak) {
+        g.strokeStyle = p.colour;
+        g.lineWidth = Math.max(1, p.size * 0.8);
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04);
+        g.lineTo(p.x, p.y);
+        g.stroke();
+      } else {
+        g.fillStyle = p.colour;
+        g.beginPath();
+        g.arc(p.x, p.y, p.size, 0, TAU);
+        g.fill();
+      }
+    }
     g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
     for (const r of state.rings) {
       g.globalAlpha = Math.max(0, r.life / r.maxLife) * 0.8;
       g.strokeStyle = r.colour;
@@ -249,12 +464,42 @@ export function createRenderer(canvas) {
       g.fillText(p.text, p.x, p.y);
     }
     g.globalAlpha = 1;
+    drawThreats(state);
+  }
+
+  /** Edge arrows for husks still outside the arena, so nothing arrives unseen. */
+  function drawThreats(state) {
+    for (const foe of state.foes) {
+      if (foe.x > -12 && foe.x < FIELD.width + 12 && foe.y > -12 && foe.y < FIELD.height + 12) continue;
+      const spec = FOES[foe.kind];
+      const cx = Math.min(FIELD.width - 24, Math.max(24, foe.x));
+      const cy = Math.min(FIELD.height - 24, Math.max(24, foe.y));
+      const a = Math.atan2(foe.y - cy, foe.x - cx);
+      const size = foe.kind === 'dreadnought' ? 15 : 9;
+      g.save();
+      g.translate(cx, cy);
+      g.rotate(a);
+      g.globalAlpha = 0.6 + 0.3 * Math.sin(state.time * 6 + foe.phase);
+      g.beginPath();
+      g.moveTo(size, 0);
+      g.lineTo(-size * 0.7, size * 0.62);
+      g.lineTo(-size * 0.7, -size * 0.62);
+      g.closePath();
+      g.fillStyle = spec.colour;
+      g.fill();
+      g.restore();
+    }
+    g.globalAlpha = 1;
   }
 
   function heart(x, y, size, filled) {
     g.save();
     g.translate(x, y);
     g.rotate(Math.PI / 4);
+    if (filled) {
+      g.shadowColor = PALETTE.danger;
+      g.shadowBlur = 9;
+    }
     g.fillStyle = filled ? PALETTE.danger : 'rgba(255,92,122,0.22)';
     g.fillRect(-size / 2, -size / 2, size, size);
     g.restore();
@@ -287,24 +532,49 @@ export function createRenderer(canvas) {
     g.textAlign = 'center';
     g.font = `800 19px ${FONT}`;
     g.fillStyle = PALETTE.text;
-    g.fillText(BOSS_WAVES.includes(state.wave) ? `WAVE ${state.wave} — DREADNOUGHT` : `WAVE ${state.wave}`, FIELD.width / 2, 38);
+    const waveLabel = BOSS_WAVES.includes(state.wave)
+      ? `WAVE ${state.wave} — DREADNOUGHT`
+      : `WAVE ${state.wave}${state.endless ? ' · ENDLESS' : ''}`;
+    g.fillText(waveLabel, FIELD.width / 2, 38);
     if (state.boss) {
       const w = 420;
       const frac = Math.max(0, state.boss.hp / state.boss.maxHp);
       g.fillStyle = 'rgba(255,255,255,0.15)';
       g.fillRect(FIELD.width / 2 - w / 2, 48, w, 8);
-      g.fillStyle = '#ff3860';
+      const bossGrad = g.createLinearGradient(FIELD.width / 2 - w / 2, 0, FIELD.width / 2 + w / 2, 0);
+      bossGrad.addColorStop(0, '#ff3860');
+      bossGrad.addColorStop(1, '#ff7a5c');
+      g.fillStyle = bossGrad;
       g.fillRect(FIELD.width / 2 - w / 2, 48, w * frac, 8);
     }
-    // Nova charge, bottom centre.
+    const remaining = state.foes.length + state.spawnQueue.length;
+    if (remaining > 0) {
+      g.font = `700 12px ${FONT}`;
+      g.fillStyle = PALETTE.muted;
+      g.fillText(`HOSTILES ${remaining}`, FIELD.width / 2, state.boss ? 76 : 60);
+    }
+    // Nova charge, bottom centre: a segmented bar that glows when ready.
     const w = 300;
     const x = FIELD.width / 2 - w / 2;
     const y = FIELD.height - 30;
     const ready = p.nova >= PLAYER.novaCost;
     g.fillStyle = 'rgba(255,255,255,0.14)';
     g.fillRect(x, y, w, 9);
-    g.fillStyle = ready ? '#8dffce' : 'rgba(141,255,206,0.55)';
+    const novaGrad = g.createLinearGradient(x, 0, x + w, 0);
+    novaGrad.addColorStop(0, '#8dffce');
+    novaGrad.addColorStop(1, '#4fc3f7');
+    g.save();
+    if (ready) {
+      g.shadowColor = '#8dffce';
+      g.shadowBlur = 13 + 5 * Math.sin(state.time * 6);
+    }
+    g.fillStyle = novaGrad;
+    g.globalAlpha = ready ? 1 : 0.75;
     g.fillRect(x, y, (w * p.nova) / PLAYER.novaCost, 9);
+    g.restore();
+    g.globalAlpha = 1;
+    g.fillStyle = 'rgba(4,5,12,0.55)';
+    for (let i = 1; i < 4; i += 1) g.fillRect(x + (w / 4) * i - 1, y, 2, 9);
     g.font = `700 12px ${FONT}`;
     g.fillStyle = ready ? '#8dffce' : PALETTE.muted;
     const label = ready ? 'NOVA READY — SHIFT / E / RIGHT CLICK' : 'NOVA — gather light shards';
@@ -324,6 +594,13 @@ export function createRenderer(canvas) {
     g.shadowBlur = 24;
     g.fillText(b.title, FIELD.width / 2, 150);
     g.shadowBlur = 0;
+    for (const dir of [-1, 1]) {
+      const grad = g.createLinearGradient(FIELD.width / 2, 0, FIELD.width / 2 + dir * 360, 0);
+      grad.addColorStop(0, 'rgba(124,231,255,0.65)');
+      grad.addColorStop(1, 'rgba(124,231,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(dir < 0 ? FIELD.width / 2 - 360 : FIELD.width / 2, 162, 360, 2);
+    }
     if (b.sub) {
       g.font = `600 17px ${FONT}`;
       g.fillStyle = PALETTE.muted;
@@ -350,8 +627,35 @@ export function createRenderer(canvas) {
     g.shadowBlur = 0;
   }
 
+  /** The title sigil: two counter-rotating rings of light behind the name, with shards in orbit. */
+  function drawSigil(state) {
+    const cx = FIELD.width / 2;
+    const cy = 232;
+    g.save();
+    g.strokeStyle = 'rgba(124,231,255,0.16)';
+    g.lineWidth = 2;
+    polygon(g, cx, cy, 176, 12, state.time * 0.05);
+    g.stroke();
+    g.strokeStyle = 'rgba(141,255,206,0.12)';
+    polygon(g, cx, cy, 138, 6, -state.time * 0.08);
+    g.stroke();
+    g.setLineDash([3, 9]);
+    g.lineDashOffset = state.time * 12;
+    g.strokeStyle = 'rgba(255,215,106,0.2)';
+    g.beginPath();
+    g.arc(cx, cy, 196, 0, TAU);
+    g.stroke();
+    g.setLineDash([]);
+    for (let i = 0; i < 3; i += 1) {
+      const a = state.time * 0.3 + (i / 3) * TAU;
+      drawGlow(sprites.shard, cx + Math.cos(a) * 157, cy + Math.sin(a) * 157, 30, 0.7);
+    }
+    g.restore();
+  }
+
   function drawTitle(state, best) {
     panel(0.34);
+    drawSigil(state);
     bigTitle('LUMEN DRIFT', 268, 92, '#eafcff', '#4fc3f7');
     g.textAlign = 'center';
     g.font = `600 21px ${FONT}`;
@@ -390,9 +694,44 @@ export function createRenderer(canvas) {
     ];
   }
 
+  /** A glass panel behind the end-of-run stats, rimmed in the screen's colour. */
+  function statPanel(y, height, colour) {
+    const x = FIELD.width / 2 - 248;
+    const w = 496;
+    g.save();
+    g.beginPath();
+    g.roundRect(x, y, w, height, 14);
+    g.fillStyle = 'rgba(6,8,16,0.62)';
+    g.fill();
+    g.strokeStyle = colour;
+    g.globalAlpha = 0.4;
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.restore();
+    g.globalAlpha = 1;
+  }
+
   function drawOver(state, best) {
     panel(0.6);
+    // The sprite's wreckage: shards of the hull still drifting and turning.
+    const debris = [[468, 296, 15], [806, 282, 11], [556, 472, 9], [736, 452, 13], [424, 418, 8], [884, 402, 10]];
+    debris.forEach(([x, y, s], i) => {
+      g.save();
+      g.translate(x, y);
+      g.rotate(state.time * (0.24 + i * 0.07) * (i % 2 ? 1 : -1));
+      g.globalAlpha = 0.4;
+      g.beginPath();
+      g.moveTo(s, 0);
+      g.lineTo(-s * 0.8, s * 0.7);
+      g.lineTo(-s * 0.3, -s * 0.8);
+      g.closePath();
+      g.fillStyle = PALETTE.hull;
+      g.fill();
+      g.restore();
+    });
+    g.globalAlpha = 1;
     bigTitle('THE LIGHT GOES OUT', 250, 58, '#ffd9e2', '#ff3860');
+    statPanel(296, 168, '#ff3860');
     g.textAlign = 'center';
     g.font = `600 19px ${FONT}`;
     g.fillStyle = PALETTE.text;
@@ -408,6 +747,7 @@ export function createRenderer(canvas) {
   function drawVictory(state, best) {
     panel(0.5);
     bigTitle('DAWN RESTORED', 250, 64, '#fff6dd', '#ffd76a');
+    statPanel(282, 196, '#ffd76a');
     g.textAlign = 'center';
     g.font = `600 19px ${FONT}`;
     g.fillStyle = PALETTE.text;
@@ -437,6 +777,7 @@ export function createRenderer(canvas) {
     g.rect(0, 0, FIELD.width, FIELD.height);
     g.clip();
     drawWorld(state);
+    g.drawImage(vignette, 0, 0);
     if (screen !== SCREEN_TITLE) drawHud(state, best);
     drawBanner(state);
     if (screen === SCREEN_TITLE) drawTitle(state, best);

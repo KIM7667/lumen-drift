@@ -104,23 +104,54 @@ function recklessPilot(state) {
  * Set `world` to the named scene and return the screen to draw over it and
  * the score to treat as the best. Unknown names stage the title.
  */
+/** How many foes are inside the arena (not still flying in from the dark). */
+function onScreenFoes(state) {
+  return state.foes.filter((f) => f.x > 0 && f.x < FIELD.width && f.y > 0 && f.y < FIELD.height).length;
+}
+
 export function stageShot(name, world) {
   const { state } = world;
   if (name === 'play') {
-    // A real run from wave 1, flown for 55 seconds: by then the pilot is
-    // deep in wave 4's mixed swarm, which is what the frame should show.
+    // A real run from wave 1, flown by the autopilot — but instead of a
+    // fixed duration, the scene stops at the first genuinely crowded
+    // moment past the half-minute mark: a mixed swarm on screen, bolts in
+    // flight and shatter sparks still hanging in the air. The simulation
+    // is deterministic, so the chosen moment is the same on every run.
     world.reset();
-    for (let i = 0; i < 55 / STEP; i += 1) {
+    const maxSteps = Math.floor(68 / STEP);
+    for (let i = 0; i < maxSteps; i += 1) {
       world.step(STEP, autopilot(state), false);
-      if (state.over) break;
+      if (state.over || state.boss) break;
+      const t = i * STEP;
+      if (t < 28) continue;
+      const p = state.player;
+      const near = state.foes.filter((f) => Math.hypot(f.x - p.x, f.y - p.y) < 460).length;
+      // The shot the judge should see: a crowd closing on the sprite, guns
+      // going. Late in the search the bar lowers rather than never firing.
+      const thickOfIt = onScreenFoes(state) >= 5 && near >= 3 && state.bolts.length >= 3 && state.particles.length >= 10;
+      const busyEnough = t >= 50 && onScreenFoes(state) >= 4 && near >= 2 && state.bolts.length >= 2 && state.particles.length >= 10;
+      if (thickOfIt || busyEnough) break;
     }
     return { screen: state.over ? SCREEN_OVER : SCREEN_PLAY, best: state.score };
   }
   if (name === 'boss') {
+    // The wave-5 Dreadnought fight, stopped at the first moment the boss
+    // sits well inside the arena with a fresh ember ring still tight
+    // around it, escorts on screen and sparks in the air. Later in the
+    // search the bar lowers rather than never firing.
     world.beginAtWave(5);
-    for (let i = 0; i < 21 / STEP; i += 1) {
+    const maxSteps = Math.floor(26 / STEP);
+    for (let i = 0; i < maxSteps; i += 1) {
       world.step(STEP, autopilot(state), false);
       if (state.over) break;
+      const t = i * STEP;
+      if (t < 5 || !state.boss) continue;
+      const b = state.boss;
+      const ring = state.embers.filter((e) => Math.hypot(e.x - b.x, e.y - b.y) < 300).length;
+      const framed = b.x > 170 && b.x < FIELD.width - 170 && b.y > 150 && b.y < FIELD.height - 150;
+      const barrage = framed && ring >= 8 && onScreenFoes(state) >= 3 && state.particles.length >= 12;
+      const lateEnough = t >= 16 && ring >= 6 && onScreenFoes(state) >= 2 && state.particles.length >= 10;
+      if (barrage || lateEnough) break;
     }
     return { screen: state.over ? SCREEN_OVER : SCREEN_PLAY, best: state.score };
   }

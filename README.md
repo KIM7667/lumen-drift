@@ -34,11 +34,33 @@ endless mode and see how long the light lasts.
   more). At full charge the Nova hits everything on screen and sweeps ember
   rings away — save it for a crowd or a boss ring.
 
-The husks come in five kinds: **drifters** home slowly, **mites** are quick
+The husks come in six kinds: **drifters** home slowly, **mites** are quick
 and fragile, **dashers** pause, flash a warning ring, then lunge,
-**splitters** break into mites when shattered, and **bulwarks** are slow,
-armoured and worth a fortune. The **Dreadnought** is a boss: it orbits at
-range and breathes rings of embers.
+**splitters** break into mites when shattered, **wraiths** weave in and
+then blink — a violet ghost marks where they will land a beat before they
+fold through the dark — and **bulwarks** are slow, armoured and worth a
+fortune. The **Dreadnought** is a boss: it orbits at range, breathes rings
+of embers, and telegraphs an aimed ember fan with a dashed sight-line and
+a converging charge glow before it spits; below half hull it enrages and
+cycles faster.
+
+## Presentation
+
+- **Layered deep space.** Two parallax nebula layers drift against the
+  player over a grained starfield, under a soft vignette; the brightest
+  stars carry their own glow.
+- **Light, drawn additively.** Every glow — hulls, bolts, embers, shards,
+  explosions — is composited additively, so combat reads as light against
+  the dark. Bolts leave streaks, kills throw streak sparks, the sprite
+  trails engine motes, and a fired Nova blooms in three rings.
+- **Sigils, not sprites.** Husks are gradient-filled geometric sigils with
+  bright cores; the Dreadnought wears counter-rotating dashed orbit
+  rings, spokes and circling ember nodes. The title screen turns behind
+  a rotating sigil of its own.
+- **A HUD that talks.** Glowing hull hearts, a hostiles-remaining
+  counter, edge arrows pointing at husks still outside the arena, a
+  segmented Nova bar that glows when charged, streak announcements at
+  combo milestones, and glass stat panels on the end screens.
 
 ## Run it
 

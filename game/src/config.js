@@ -31,6 +31,7 @@ export const FOES = {
   mite: { radius: 9, hp: 1, speed: 128, score: 25, colour: '#ff8a5c', core: '#fff3e2' },
   dasher: { radius: 13, hp: 2, speed: 66, score: 80, colour: '#ff5c8a', core: '#ffe3ee' },
   splitter: { radius: 20, hp: 4, speed: 52, score: 120, colour: '#ffc44d', core: '#fff6dd' },
+  wraith: { radius: 14, hp: 3, speed: 92, score: 100, colour: '#e05cff', core: '#fbe9ff' },
   bulwark: { radius: 30, hp: 14, speed: 30, score: 300, colour: '#ff5252', core: '#ffe1e1' },
   dreadnought: { radius: 58, hp: 90, speed: 17, score: 2500, colour: '#ff3860', core: '#ffd9e2' },
 };

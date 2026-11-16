@@ -28,7 +28,7 @@ function waveComposition(random, wave) {
     const escorts = wave >= FINAL_WAVE ? 6 : 4;
     for (let i = 0; i < escorts; i += 1) list.push('drifter');
     for (let i = 0; i < escorts; i += 1) list.push('mite');
-    if (wave >= FINAL_WAVE) list.push('dasher', 'dasher', 'splitter');
+    if (wave >= FINAL_WAVE) list.push('dasher', 'dasher', 'splitter', 'wraith', 'wraith');
     return list;
   }
   const add = (kind, count) => {
@@ -37,6 +37,7 @@ function waveComposition(random, wave) {
   add('drifter', 3 + wave);
   if (wave >= 2) add('mite', 2 + wave);
   if (wave >= 3) add('dasher', wave - 1);
+  if (wave >= 3) add('wraith', wave - 2);
   if (wave >= 4) add('splitter', Math.floor(wave / 2));
   if (wave >= 6) add('bulwark', Math.floor((wave - 4) / 2));
   // Shuffle so kinds arrive mixed, never in blocks.
@@ -111,9 +112,9 @@ export function createWorld(random) {
     return stars;
   }
 
-  function burst(x, y, colour, count, speed, size = 3, life = 0.6) {
+  function burst(x, y, colour, count, speed, size = 3, life = 0.6, streak = false) {
     for (let i = 0; i < count; i += 1) {
-      if (state.particles.length > 420) return;
+      if (state.particles.length > 460) return;
       const a = random.angle();
       const v = speed * (0.25 + random.next() * 0.95);
       state.particles.push({
@@ -124,7 +125,8 @@ export function createWorld(random) {
         maxLife: life,
         size: size * (0.6 + random.next() * 0.9),
         colour,
-        drag: 2.6,
+        drag: streak ? 1.4 : 2.6,
+        streak,
       });
     }
   }
@@ -172,7 +174,11 @@ export function createWorld(random) {
       modeTimer: random.range(0.7, 1.5),
       dashX: 0,
       dashY: 0,
+      blinkX: 0,
+      blinkY: 0,
       shotTimer: 2.2,
+      charge: 0,
+      fanNext: false,
       orbitDir: random.chance(0.5) ? 1 : -1,
     };
     state.foes.push(foe);
@@ -204,8 +210,12 @@ export function createWorld(random) {
     const points = Math.round(spec.score * mult);
     state.score += points;
     popup(foe.x, foe.y - foe.radius, `+${points}`, spec.core, foe.kind === 'dreadnought' ? 30 : 17);
+    if (state.combo >= 8 && state.combo % 8 === 0) {
+      popup(state.player.x, state.player.y - 34, `STREAK x${mult.toFixed(1)}`, '#ffd76a', 23);
+    }
     burst(foe.x, foe.y, spec.colour, foe.radius > 25 ? 34 : 16, 260, 3.4, 0.7);
     burst(foe.x, foe.y, spec.core, 8, 150, 2.2, 0.5);
+    burst(foe.x, foe.y, spec.colour, foe.radius > 25 ? 16 : 9, 430, 2.1, 0.42, true);
     ring(foe.x, foe.y, spec.colour, 380, 4);
     state.shake = Math.min(14, state.shake + (foe.radius > 25 ? 9 : 3));
     const shardCount = foe.kind === 'dreadnought' ? 12 : foe.kind === 'bulwark' ? 3 : foe.kind === 'splitter' ? 2 : 1;
@@ -259,7 +269,7 @@ export function createWorld(random) {
     const bossWave = BOSS_WAVES.includes(wave);
     state.banner = {
       title: bossWave ? `WAVE ${wave} — THE DREADNOUGHT` : `WAVE ${wave}`,
-      sub: bossWave ? 'Bring it down. Mind the ember rings.' : wave === 1 ? 'WASD to move · mouse to aim · hold click to fire' : '',
+      sub: bossWave ? 'Bring it down. Mind the rings — and dodge the fan when it charges.' : wave === 1 ? 'WASD to move · mouse to aim · hold click to fire' : '',
       t: 2.0,
     };
     return bossWave ? EVT_BOSS : EVT_WAVE;
@@ -326,6 +336,21 @@ export function createWorld(random) {
     player.x = Math.min(FIELD.width - player.radius, Math.max(player.radius, player.x + player.vx * dt));
     player.y = Math.min(FIELD.height - player.radius, Math.max(player.radius, player.y + player.vy * dt));
     player.thrust = Math.min(1, speed / PLAYER.maxSpeed);
+    // Engine trail: a fading ribbon of light motes while under way.
+    if (speed > 110 && state.particles.length < 460) {
+      state.particles.push({
+        x: player.x - Math.cos(player.angle) * (player.radius + 4) + random.range(-3, 3),
+        y: player.y - Math.sin(player.angle) * (player.radius + 4) + random.range(-3, 3),
+        vx: -player.vx * 0.16,
+        vy: -player.vy * 0.16,
+        life: 0.38,
+        maxLife: 0.38,
+        size: 2.3,
+        colour: random.chance(0.4) ? '#ffab5e' : '#7ce7ff',
+        drag: 2.2,
+        streak: false,
+      });
+    }
     if (control.ax !== player.x || control.ay !== player.y) {
       player.angle = Math.atan2(control.ay - player.y, control.ax - player.x);
     }
@@ -352,6 +377,10 @@ export function createWorld(random) {
       state.shake = Math.min(20, state.shake + 12);
       ring(player.x, player.y, '#8dffce', 1500, 10);
       ring(player.x, player.y, '#ffffff', 1100, 5);
+      ring(player.x, player.y, '#aef4ff', 760, 3);
+      burst(player.x, player.y, '#8dffce', 40, 540, 2.4, 0.7, true);
+      burst(player.x, player.y, '#eafff5', 18, 300, 3, 0.8);
+      popup(player.x, player.y - 40, 'NOVA', '#8dffce', 26);
       state.embers = [];
       for (const foe of [...state.foes]) {
         foe.hp -= 6;
@@ -394,6 +423,43 @@ export function createWorld(random) {
         foe.vy = foe.dashY * 540;
         if (foe.modeTimer <= 0) { foe.mode = 'stalk'; foe.modeTimer = random.range(0.8, 1.6); }
       }
+    } else if (foe.kind === 'wraith') {
+      // A hunter that weaves in, then blinks: it telegraphs a ghost of its
+      // destination for a beat before it folds through the dark to strike
+      // from the far side of the player. It never lands on top of them.
+      foe.modeTimer -= dt;
+      if (foe.mode === 'blinkwindup') {
+        foe.vx *= 0.82;
+        foe.vy *= 0.82;
+        if (foe.modeTimer <= 0) {
+          burst(foe.x, foe.y, '#e05cff', 14, 240, 2.6, 0.5, true);
+          ring(foe.x, foe.y, '#e05cff', 300, 3);
+          foe.x = foe.blinkX;
+          foe.y = foe.blinkY;
+          foe.vx = 0;
+          foe.vy = 0;
+          burst(foe.x, foe.y, '#fbe9ff', 16, 260, 2.6, 0.5, true);
+          ring(foe.x, foe.y, '#e05cff', 340, 4);
+          foe.mode = 'stalk';
+          foe.modeTimer = random.range(1.9, 2.9);
+        }
+      } else {
+        const weave = Math.sin(foe.t * 3.6 + foe.phase) * 86;
+        foe.vx = ux * foe.speed - uy * weave * 0.55;
+        foe.vy = uy * foe.speed + ux * weave * 0.55;
+        if (foe.modeTimer <= 0) {
+          if (dist > 190 && dist < 660) {
+            const side = Math.atan2(player.y - foe.y, player.x - foe.x) + Math.PI + random.range(-0.7, 0.7);
+            const land = random.range(235, 305);
+            foe.blinkX = Math.min(FIELD.width - 44, Math.max(44, player.x + Math.cos(side) * land));
+            foe.blinkY = Math.min(FIELD.height - 44, Math.max(44, player.y + Math.sin(side) * land));
+            foe.mode = 'blinkwindup';
+            foe.modeTimer = 0.45;
+          } else {
+            foe.modeTimer = 0.5;
+          }
+        }
+      }
     } else if (foe.kind === 'dreadnought') {
       if (dist > 360) {
         foe.vx = ux * foe.speed;
@@ -402,23 +468,59 @@ export function createWorld(random) {
         foe.vx = (-uy * foe.orbitDir + ux * 0.12) * foe.speed * 1.6;
         foe.vy = (ux * foe.orbitDir + uy * 0.12) * foe.speed * 1.6;
       }
-      foe.shotTimer -= dt;
-      if (foe.shotTimer <= 0 && player.alive) {
-        foe.shotTimer = 2.6;
-        const base = random.angle();
-        const count = 14;
-        for (let i = 0; i < count; i += 1) {
-          const a = base + (i / count) * TAU;
-          state.embers.push({
-            x: foe.x + Math.cos(a) * (foe.radius + 8),
-            y: foe.y + Math.sin(a) * (foe.radius + 8),
-            vx: Math.cos(a) * 148,
-            vy: Math.sin(a) * 148,
-            radius: 6,
-            life: 6,
-          });
+      // Two attacks, alternating. The ember ring is instant; the aimed fan
+      // is telegraphed — the boss charges (renderer shows the aim line and
+      // a converging glow) for a beat before it spits. Below half hull it
+      // is enraged: faster cycle, wider fan.
+      const enraged = foe.hp <= foe.maxHp / 2;
+      if (foe.charge > 0) {
+        foe.charge -= dt;
+        foe.vx *= 0.9;
+        foe.vy *= 0.9;
+        if (foe.charge <= 0 && player.alive) {
+          foe.charge = 0;
+          const aim = Math.atan2(player.y - foe.y, player.x - foe.x);
+          const count = enraged ? 7 : 5;
+          const spread = 0.42;
+          for (let i = 0; i < count; i += 1) {
+            const a = aim + (count === 1 ? 0 : (i / (count - 1) - 0.5) * 2 * spread);
+            state.embers.push({
+              x: foe.x + Math.cos(a) * (foe.radius + 8),
+              y: foe.y + Math.sin(a) * (foe.radius + 8),
+              vx: Math.cos(a) * 252,
+              vy: Math.sin(a) * 252,
+              radius: 6,
+              life: 5,
+            });
+          }
+          ring(foe.x, foe.y, '#ff9d5c', 460, 4);
+          burst(foe.x + Math.cos(aim) * foe.radius, foe.y + Math.sin(aim) * foe.radius, '#ff9d5c', 10, 200, 2.4, 0.35, true);
         }
-        ring(foe.x, foe.y, '#ff9d5c', 420, 4);
+      } else {
+        foe.shotTimer -= dt;
+        if (foe.shotTimer <= 0 && player.alive) {
+          foe.shotTimer = enraged ? 2.1 : 2.6;
+          if (foe.fanNext) {
+            foe.fanNext = false;
+            foe.charge = 0.55;
+          } else {
+            foe.fanNext = true;
+            const base = random.angle();
+            const count = 14;
+            for (let i = 0; i < count; i += 1) {
+              const a = base + (i / count) * TAU;
+              state.embers.push({
+                x: foe.x + Math.cos(a) * (foe.radius + 8),
+                y: foe.y + Math.sin(a) * (foe.radius + 8),
+                vx: Math.cos(a) * 148,
+                vy: Math.sin(a) * 148,
+                radius: 6,
+                life: 6,
+              });
+            }
+            ring(foe.x, foe.y, '#ff9d5c', 420, 4);
+          }
+        }
       }
     } else {
       foe.vx = ux * foe.speed - uy * wobble * 0.5;
@@ -451,7 +553,7 @@ export function createWorld(random) {
     if (ambient) {
       // Title-screen drift: a few husks wander, nothing can be hurt.
       if (state.foes.length < 6 && random.chance(0.02)) {
-        const foe = spawnFoe(random.pick(['drifter', 'splitter', 'dasher']));
+        const foe = spawnFoe(random.pick(['drifter', 'splitter', 'dasher', 'wraith']));
         foe.x = random.next() * FIELD.width;
         foe.y = random.next() * FIELD.height;
       }
@@ -586,9 +688,14 @@ export function createWorld(random) {
         shard.y += shard.vy * dt;
         if (state.player.alive && dist < state.player.radius + shard.radius + 6) {
           shard.life = 0;
+          const wasCharged = state.player.nova >= PLAYER.novaCost;
           state.player.nova = Math.min(PLAYER.novaCost, state.player.nova + SHARD.novaGain);
           state.score += 10;
           burst(shard.x, shard.y, '#8dffce', 5, 120, 2, 0.35);
+          if (!wasCharged && state.player.nova >= PLAYER.novaCost) {
+            popup(state.player.x, state.player.y - 36, 'NOVA READY', '#8dffce', 19);
+            ring(state.player.x, state.player.y, '#8dffce', 320, 3);
+          }
           events |= EVT_PICKUP;
         }
       }
